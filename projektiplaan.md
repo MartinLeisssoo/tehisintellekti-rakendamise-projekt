@@ -11,17 +11,17 @@
 ### 🔴 1.1 Kasutaja kirjeldus ja eesmärgid
 Kellel on probleem ja miks see lahendamist vajab? Mis on lahenduse oodatud kasu? Milline on hetkel eksisteeriv lahendus?
 
-> Probleem on tudengitel, kes soovivad huvipakkuvatele ainetele registeeruda, kuid huvi_kirjeldus != aine nimi ÕISi otsingust. Lisaks ÕISi otsing ise ei toimi ideaalselt, kui kirjutada otsingusse sõna osa, mis aine nimes siseldub, ei pruugi vastet saada. Lahenduse oodatud kasu on see, et tudeng leiab hõlpsalt aine, mis talle sobib. Hetke lahendusega on raske leida ainet, mille sisu vastab sellele, mida reaalselt tahad. 
+> Tartu Ulikooli ois-is on tuhandeid oppeaineid ning sobivate ainete leidmine on aeganoudev. Olemasolev otsing on vahepaindlik ning nouab tihti vaga konkreetseid otsingusonu; vabas vormis huvikirjeldus ei klapi aine nimedega ja varasemate semestrite aineid on raske leida. Eesmargiks on pakkuda vabatekstilist, semantilist otsingut, mis aitab tudengitel leida endale sobivad vaba- ja valikained ning tuua kokku erinevate valdkondade huvid. Kasu on paremad vasted ainete ja tudengite vahel ning nauditavam ainevaliku protsess.
 
 ### 🔴 1.2 Edukuse mõõdikud
 Kuidas mõõdame rakenduse edukust? Mida peab rakendus teha suutma?
 
-> Rakenduse edukust mõõdame kasutaja tagasiside põhjal. Rakendus peab suutma kasutajale anda õppaine soovituse vastavalt kasutaja sisendile, kui sellist ainet ei ole olemas, siis tuleb see kasutajale teada anda. Lisaks peab soovitus olema algse sisendiga kooskõlas, kui kasutaja küsib aineid, mis asuvad tartus, pole mõtet soovitada Viljandi aineid. Testimine teststsenaariumitega (test-cases).
+> Rakendus on edukas, kui ta leiab vabatekstilistele paringutele semantilisi vasteid ka siis, kui paringu sisu sona-sonalt ei esine aine kirjeldustes. Rakendus peab rakendama rangete filtrite tingimusi (semester, instituut/valdkond, asukoht, oppekeel) ning tagastama asjakohased tulemused sobivuse jargi. Tulemused peavad kasutama uusimat ainekirjelduste versiooni, mitte pakkuma ebasobivaid/mitteainega seotud vastuseid, ning toimima moistliku kiirusega. Edukust saab hinnata teststsenaariumitega ning kasutajate tagasisidega (nt vaba- ja valikainete valiku lihtsus).
 
 ### 🔴 1.3 Ressursid ja piirangud
 Millised on ressursipiirangud (nt aeg, eelarve, tööjõud, arvutusvõimsus)? Millised on tehnilised ja juriidilised piirangud (GDPR, turvanõuded, platvorm)? Millised on piirangud tasuliste tehisintellekti mudelite kasutamisele?
 
-> Piirangud: aeg, eelarve puudlik, tööjõud - 2 inimese vaba aeg, arvutusvõimsus piirdub lokaalse arvuti riistvaraga või tasuta APId. Turvanõuded: kasutajad saavad teha prompt injectionit ja kasutada meie mudleit mitteotstarbeliselt ära, raisates ressurssi. Arvestada tuleb sellega, et kasutaja võib sisendina anda personaalset infot, mis võib edasi lekkida API pakkujale. Tasulised mudleid maksavad rohkem kui meil raha on. Kui on vähe kaustajaid, siis saab hakkama tasuta limiitidega, kuid kui on suurem kasutajaskond (kõik UT tudnegid), siis peab kuluga arvestama.
+> Projekti aeg on umbes 1 kuu ja eelarve piiratud (u ~50 EUR 20 inimese peale tasuliste mudelite kasutamiseks). Arendus toimub peamiselt lokaalselt; rakendus voiks olla veebipohine, kuid kursuse raames jooksutada lokaalselt. Eelistame vabavaralisi mudeleid ja tasuta API sid. Turvanouded: prompt injectioni risk, ressursi kuritarvitamine, ning kasutajasisendites voib esineda personaalset infot, mis ei tohi lekkida API pakkujale. Andmestik sisaldab oppejoudude isikuandmeid, seega avaliku rakenduse puhul tuleks kaaluda eetikakomitee luba voi isikuandmete eemaldamist. Rakendus ei tohi anda aineotsinguga mitteseotud vastuseid.
 
 <br>
 <br>
@@ -33,22 +33,22 @@ Millised on ressursipiirangud (nt aeg, eelarve, tööjõud, arvutusvõimsus)? Mi
 ### 🟠 2.1 Andmevajadus ja andmeallikad
 Milliseid andmeid (ning kui palju) on lahenduse toimimiseks vaja? Kust andmed pärinevad ja kas on tagatud andmetele ligipääs?
 
-> Ainete kirjeldused, koodid, nimetused, mahud, asukohad, tagasiside, kohapelane aine jah/ei. Adme dpärinevad ÕISi APIst ja on ligipääsetavad (scraper provided).
+> Vajame infot koigi UT oppeainete kohta (vaartuslikult vahemalt terve aasta, eelistatult viimased 2 aastat). Vajalikud on aine kirjeldused, koodid, nimetused, mahud, asukohad, oppekeel, semester, instituut/valdkond, ning veebis/kohapeal toimumise info. Andmed saavad tulla OIS2 APIst (vajadusel mitmest endpointist) ja on avalikult kattesadavad.
 
 ### 🟠 2.2 Andmete kasutuspiirangud
 Kas andmete kasutamine (sh ärilisel eesmärgil) on lubatud? Kas andmestik sisaldab tundlikku informatsiooni?
 
-> Sõltub, mis on API dokumentatsioonid kirjas (kasutuslitsents). Sõltub, mida tundlikuks informatsiooniks lugeda. 
+> Andmed on avalikult kattesadavad; kasutuslubasid tuleb kontrollida API dokumentatsioonist. Andmestik sisaldab oppejoudude isikuandmeid, mis voiab avaliku rakenduse puhul nouda eetikakomitee luba voi andmete anonumiseerimist.
 
 ### 🟠 2.3 Andmete kvaliteet ja maht
 Millises formaadis andmeid hoiustatakse? Mis on andmete maht ja andmestiku suurus? Kas andmete kvaliteet on piisav (struktureeritus, puhtus, andmete kogus) või on vaja märkimisväärset eeltööd)?
 
-> .csv faili formaat, andmemaht veerud x read : 223x3031, kvaliteet ei ole RAG süsteemi jaoks piisav, tuleb teostada filtreerimine (luua ärireeglid ja piirangud, kui suurelt probleemi lahendada) ja struktureerida. 
+> Andmed on CSV formaadis (u 45.3 MB, 3031 rida, 223 veergu). Osad veerud on eri keeltes voi duplikaatides (kursuse vs versiooni kirjeldus), osa on tekstilised, osa numbrilised ning osa JSON kujul. Kvaliteet on uldiselt piisav, kuid vajab filtreerimist, veergude valikut ja JSON valjade puhastamist. Puuduvate vaartuste osakaal on osades veergudes suur.
 
 ### 🟠 2.4 Andmete kirjeldamise vajadus
 Milliseid samme on vaja teha, et kirjeldada olemasolevaid andmeid ja nende kvaliteeti.
 
-> EDA - exploratory data analysis, uurida andmeid (juba osaliselt tehtud), leida kitsaskohad, mis võivad RAG süsteemi häirida ja kasutatavaid kirjeid/veerge. 
+> Vaja on analuusida koigi 223 veeru tahendused, valida olulised veerud ning hinnata puuduvate vaartuste hulka. Tuleb puhastada JSON valjad, kombineerida kirjeldavad tunnused uheks vabatekstiks ning kontrollida, et valitud veerud sobivad semantilise otsingu/RAG jaoks. EDA on osaliselt tehtud, kuid vaja on formeerida loplik tunnuste valik.
 
 <br>
 <br>
@@ -60,12 +60,12 @@ Fookus: Toordokumentide viimine tehisintellekti jaoks sobivasse formaati.
 ### 🟡 3.1 Puhastamise strateegia
 Milliseid samme on vaja teha andmete puhastamiseks ja standardiseerimiseks? Kui suur on ettevalmistusele kuluv aja- või rahaline ressurss?
 
-> 1. Probleemide identifitseerimine, 2. Kindlad sammud iga probleemi mitigeerimiseks (NAN valued jne), 3. andmetüübid standardkujule. Ajaline ressurss ~20 tundi. Raha ei plaani kulutada, piirdume tasuta kättesaadavate mudleitega (GitHub copilot).
+> 1) Probleemide identifitseerimine (puuduvad vaartused, duplikaadid, eri keelte variandid). 2) JSON valjade parsamine ning standardiseerimine. 3) Vajadusel puuduvate vaartuste imputimine voi tuletamine teistest OIS2 endpointidest. 4) Andmetuupide uhtlustamine. Ajaliselt hinnanguliselt ~1 nadal; raha ei plaani kulutada, piirdume tasuta/avatud mudelitega.
 
 ### 🟡 3.2 Tehisintellektispetsiifiline ettevalmistus
 Kuidas andmed tehisintellekti mudelile sobivaks tehakse (nt tükeldamine, vektoriseerimine, metaandmete lisamine)?
 
-> csv -> json -> wordtovec vektoriseerimine -> andmebaas
+> Valitakse ainet kirjeldavad veerud ning koostatakse iga aine jaoks uks kirjeldav tekst (ET/EN). See tekst vektoriseeritakse sobiva embedding-mudeliga ja salvestatakse koos metaandmetega (kood, semester, asukoht, oppekeel) andmebaasi. Vektorotsing + filtrid moodustavad RAG-pohise semantilise otsingu.
 
 <br>
 <br>
