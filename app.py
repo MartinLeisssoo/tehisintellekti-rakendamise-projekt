@@ -246,7 +246,15 @@ with st.sidebar:
         ["Koik", "Eristav", "Mitteeristav"],
         index=0,
     )
-    top_k = st.slider("Tulemuste arv", min_value=1, max_value=10, value=DEFAULT_TOP_K)
+    result_mode = st.radio(
+        "Tulemuste valik",
+        ["Tulemuste arv", "Ainult täpseimad vasted"],
+        horizontal=True,
+    )
+    if result_mode == "Tulemuste arv":
+        top_k = st.slider("Tulemuste arv", min_value=1, max_value=10, value=DEFAULT_TOP_K)
+    else:
+        top_k = None
 
     with st.expander("Täpsemad filtrid"):
         selected_languages = st.multiselect(
@@ -383,12 +391,25 @@ if prompt := st.chat_input("Kirjelda, mida soovid õppida..."):
                         for desc in candidates_df["description"].fillna("").tolist()
                     ]
                     rerank_scores = reranker.predict(pairs)
-                    final_k = min(top_k, len(candidates_df))
-                    best_indices = np.argsort(rerank_scores)[::-1][:final_k]
+                    sorted_idx = np.argsort(rerank_scores)[::-1]
+
+                    if top_k is not None:
+                        best_indices = sorted_idx[:min(top_k, len(sorted_idx))]
+                    else:
+                        if len(sorted_idx) <= 1:
+                            best_indices = sorted_idx
+                        else:
+                            sorted_scores = rerank_scores[sorted_idx]
+                            gaps = sorted_scores[:-1] - sorted_scores[1:]
+                            cut_after = int(np.argmax(gaps))
+                            best_indices = sorted_idx[:cut_after + 1]
+                            if len(best_indices) == 0:
+                                best_indices = sorted_idx[:1]
+
                     results_df = candidates_df.iloc[best_indices]
                     context_text = build_course_context(results_df)
 
-                    st.caption(f"Leitud {final_k} sobivat kursust {len(filtered_df)}-st")
+                    st.caption(f"Näitan {len(results_df)} kursust {len(filtered_df)}-st")
 
             if context_text is None:
                 no_results = "Sobivaid kursusi ei leitud praeguste filtritega."
@@ -399,7 +420,7 @@ if prompt := st.chat_input("Kirjelda, mida soovid õppida..."):
                 try:
                     client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
                     response_lang = detect_language(prompt)
-                    rec_count = final_k
+                    rec_count = len(results_df)
 
                     if response_lang == "en":
                         system_content = (
@@ -410,22 +431,23 @@ if prompt := st.chat_input("Kirjelda, mida soovid õppida..."):
                             "3) Use ONLY the course context provided below. Never invent or paraphrase facts.\n"
                             "4) Do not add apologies or safety disclaimers for course-related queries.\n"
                             "5) If the query is not about courses, briefly redirect to course advising.\n"
-                            f"6) Recommend UP TO {rec_count} courses. Only include a course if it GENUINELY matches "
-                            "the user's query based on its own context text. If fewer than {rec_count} courses "
-                            "genuinely match, recommend only those and say no additional matches were found.\n"
+                            f"6) You MUST include ALL {rec_count} courses provided in the context below — do not omit any. "
+                            f"Assign each course a suitability score from 1–10 based on how well it matches the user's query. "
+                            "Order courses from highest to lowest score.\n"
                             "7) Prefer the English course name; fall back to Estonian only if no English name exists.\n"
                             "8) The *Relevance* quote MUST be copied VERBATIM from that course's own context block "
-                            "below. Do NOT copy a quote from a different course's context. Do NOT paraphrase or invent "
-                            "text. If you cannot find a genuine verbatim quote for a course, skip that course.\n"
-                            "9) Use EXACTLY this format. Labels must be 'Goals' and 'Relevance'. "
+                            "below. Do NOT copy a quote from a different course's context. Do NOT paraphrase or invent text.\n"
+                            "9) Use EXACTLY this format. Labels must be 'Suitability', 'Goals' and 'Relevance'. "
                             "Put a blank line between course entries.\n\n"
                             "Format (each sub-item is a nested bullet with two-space indent and a dash):\n"
-                            "- **COURSE_CODE – English course name** (X EAP)\n"
+                            "- **COURSE_CODE – English course name** (X EAP, semester)\n"
+                            "  - *Suitability:* X/10\n"
                             "  - *Goals:* \"[goals from that course's context, shortened if long]\"\n"
                             "  - *Relevance:* \"[verbatim quote from THAT course's description/context]\"\n"
                             "  - [One sentence why this course fits the request]\n\n"
                             "Example output:\n"
-                            "- **LTAT.03.001 – Introduction to Computer Science** (6.0 EAP)\n"
+                            "- **LTAT.03.001 – Introduction to Computer Science** (6.0 EAP, autumn)\n"
+                            "  - *Suitability:* 9/10\n"
                             "  - *Goals:* \"To provide an overview of fundamental computer science concepts and teach programming.\"\n"
                             "  - *Relevance:* \"Students will learn to write programs and analyse algorithms for solving computational problems.\"\n"
                             "  - This course is ideal for anyone looking to build a solid foundation in software development.\n\n"
@@ -444,21 +466,23 @@ if prompt := st.chat_input("Kirjelda, mida soovid õppida..."):
                             "3) Kasuta AINULT allolevat kursuste konteksti. Ära kunagi leiuta ega ümbersõnasta fakte.\n"
                             "4) Ära lisa vabandusi ega ohutustekste kursuste kohta.\n"
                             "5) Kui päring ei ole kursuste kohta, suuna tagasi kursuste nõustamisele.\n"
-                            f"6) Soovita KUNI {rec_count} kursust. Lisa kursus ainult siis, kui see TÕELISELT vastab "
-                            "kasutaja päringule selle kursuse enda konteksti põhjal. Kui vähem kui {rec_count} kursust "
-                            "tõeliselt sobib, soovita ainult need ja märgi, et rohkem sobivaid ei leidu.\n"
+                            f"6) Sa PEAD kaasama KÕIK {rec_count} kontekstis olevat kursust — ära jäta ühtegi välja. "
+                            "Määra igale kursusele sobivushinne 1–10 selle põhjal, kui hästi see vastab kasutaja päringule. "
+                            "Järjesta kursused hindelt kõrgeimast madalaimani.\n"
                             "7) *Asjakohasus* tsitaat PEAB olema sõna-sõnalt kopeeritud SELLE kursuse enda "
-                            "kontekstiplokist allpool. ÄRA kopeeri tsitaati teise kursuse kontekstist. ÄRA sõnasta "
-                            "ümber ega leiuta teksti. Kui ei leia konkreetset tsitaati, jäta kursus soovitamata.\n"
-                            "8) Kasuta TÄPSELT järgmist vormingut. Silted peavad olema "
-                            "'Eesmärgid' ja 'Asjakohasus' (mitte 'Goals' ega 'Relevance'). Kirjete vahele jäta tühi rida.\n\n"
+                            "kontekstiplokist allpool. ÄRA kopeeri tsitaati teise kursuse kontekstist. ÄRA sõnasta ümber ega leiuta teksti.\n"
+                            "8) Kontrolli oma vastuses korrektset eesti keele grammatikat ja stiili. "
+                            "9) Kasuta TÄPSELT järgmist vormingut. Silted peavad olema "
+                            "'Sobivus', 'Eesmärgid' ja 'Asjakohasus' (mitte 'Goals' ega 'Relevance'). Kirjete vahele jäta tühi rida.\n\n"
                             "Vorming (iga alamkirje on pesastatud bullet kahe tühiku taandega ja kriipsuga):\n"
-                            "- **AINEKOOD – Kursuse eestikeelne nimi** (X EAP)\n"
+                            "- **AINEKOOD – Kursuse eestikeelne nimi** (X EAP, semester)\n"
+                            "  - *Sobivus:* X/10\n"
                             "  - *Eesmärgid:* \"[selle kursuse eesmärgid kontekstist, lühendatult]\"\n"
                             "  - *Asjakohasus:* \"[sõna-sõnaline tsitaat SELLE kursuse kirjeldusest/kontekstist]\"\n"
                             "  - [Üks lause, miks see kursus sobib]\n\n"
                             "Näide:\n"
-                            "- **LTAT.03.001 – Sissejuhatus arvutiteadusse** (6.0 EAP)\n"
+                            "- **LTAT.03.001 – Sissejuhatus arvutiteadusse** (6.0 EAP, sügis)\n"
+                            "  - *Sobivus:* 9/10\n"
                             "  - *Eesmärgid:* \"Anda ülevaade arvutiteaduse põhimõistetest ja õpetada programmeerimist.\"\n"
                             "  - *Asjakohasus:* \"Üliõpilased õpivad kirjutama programme ja analüüsima algoritme arvutuslike probleemide lahendamiseks.\"\n"
                             "  - See kursus sobib hästi, kuna pakub praktilist programmeerimiskogemust algajatele.\n\n"
