@@ -1,6 +1,10 @@
+import csv
+import os
 import pickle
 import re
+from datetime import datetime
 
+import tiktoken
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,6 +21,38 @@ DATA_PATH = "toorandmed/puhastatud_andmed.csv"
 EMBEDDINGS_PATH = "toorandmed/embeddings.pkl"
 DEFAULT_TOP_K = 5
 CANDIDATE_POOL = 20
+
+# OpenRouter pricing (USD per million tokens) — add new models here
+MODEL_PRICING = {
+    "google/gemma-3-27b-it": (0.10, 0.20),
+}
+
+
+_enc = tiktoken.get_encoding("cl100k_base")
+
+
+def _count_tokens(text: str) -> int:
+    """Count tokens using cl100k_base encoding."""
+    return len(_enc.encode(text))
+
+
+FEEDBACK_LOG_PATH = "tagasiside_log.csv"
+
+
+def log_feedback(timestamp, prompt, filters, context_ids, context_names, response, rating, error_category, comment=""):
+    """Append a feedback row to the CSV log."""
+    file_exists = os.path.isfile(FEEDBACK_LOG_PATH)
+    with open(FEEDBACK_LOG_PATH, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow([
+                "Aeg", "Kasutaja päring", "Filtrid", "Leitud aine_koodid",
+                "Leitud nimed", "LLM Vastus", "Hinnang", "Veatüüp", "Kommentaar",
+            ])
+        writer.writerow([
+            timestamp, prompt, filters, str(context_ids),
+            str(context_names), response, rating, error_category, comment,
+        ])
 
 
 # ---------- Helper functions ----------
@@ -225,7 +261,10 @@ with st.sidebar:
     api_key = st.text_input("OpenRouter API Key", type="password")
     if st.button("Uus vestlus"):
         st.session_state.messages = []
+        st.session_state.total_input_tokens = 0
+        st.session_state.total_output_tokens = 0
         st.rerun()
+    show_debug = st.checkbox("Näita silumisinfot", value=True)
     st.divider()
     st.markdown(f"**Mudel:** `{LLM_MODEL}`")
 
@@ -307,6 +346,14 @@ with st.sidebar:
         )
         st.caption(f"{int(match_mask.sum())} kursust vastab filtritele")
 
+    st.divider()
+    in_tok  = st.session_state.get("total_input_tokens", 0)
+    out_tok = st.session_state.get("total_output_tokens", 0)
+    price_in, price_out = MODEL_PRICING.get(LLM_MODEL, (0, 0))
+    cost = in_tok * price_in / 1_000_000 + out_tok * price_out / 1_000_000
+    st.caption(f"~Tokeneid: {in_tok} sisse / {out_tok} välja")
+    st.caption(f"~Kulu: ${cost:.6f}")
+
 # ---------- Load embeddings ----------
 embeddings = None
 embeddings_ready = False
@@ -336,10 +383,74 @@ data_ready = df_ready and embeddings_ready
 # ---------- Chat history ----------
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "total_input_tokens" not in st.session_state:
+    st.session_state.total_input_tokens = 0
+if "total_output_tokens" not in st.session_state:
+    st.session_state.total_output_tokens = 0
 
-for msg in st.session_state.messages:
+for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
+
+        if msg["role"] == "assistant" and "debug_info" in msg and show_debug:
+            debug = msg["debug_info"]
+
+            with st.expander("Vaata kapoti alla (RAG ja filtrid)"):
+                st.caption(f"**Aktiivsed filtrid:** {debug.get('filters', 'Info puudub')}")
+                st.write(f"Filtreeritud kursuste arv: **{debug.get('filtered_count', 0)}**")
+                st.write(f"Kandidaatide arv (semantiline otsing): **{debug.get('candidate_count', 0)}**")
+
+                st.write("**Lõpptulemused (reranker):**")
+                rdf = debug.get("results_df")
+                if rdf is not None and not rdf.empty:
+                    display_cols = ["aine_kood", "nimi_et", "eap", "semester", "oppeaste"]
+                    cols_to_show = [c for c in display_cols if c in rdf.columns]
+                    st.dataframe(rdf[cols_to_show], hide_index=True)
+                else:
+                    st.warning("Ühtegi kursust ei leitud.")
+
+                st.text_area(
+                    "LLM-ile saadetud süsteemiviip:",
+                    debug.get("system_prompt", ""),
+                    height=150,
+                    disabled=True,
+                    key=f"prompt_area_{i}",
+                )
+
+            with st.expander("Hinda vastust"):
+                with st.form(key=f"feedback_form_{i}"):
+                    rating = st.radio(
+                        "Hinnang vastusele:",
+                        ["Hea", "Halb"],
+                        horizontal=True,
+                        key=f"rating_{i}",
+                    )
+                    error_cat = st.selectbox(
+                        "Kui vastus oli halb, mis läks valesti?",
+                        [
+                            "",
+                            "Filtrid olid liiga karmid/valed",
+                            "RAG otsing leidis valed ained",
+                            "LLM hallutsineeris/vastas valesti",
+                        ],
+                        key=f"kato_{i}",
+                    )
+                    comment = st.text_area(
+                        "Vaba kommentaar (valikuline):",
+                        key=f"comment_{i}",
+                        height=80,
+                    )
+                    if st.form_submit_button("Salvesta hinnang"):
+                        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        rdf = debug.get("results_df")
+                        ctx_ids = rdf["aine_kood"].tolist() if (rdf is not None and not rdf.empty) else []
+                        ctx_names = rdf["nimi_et"].tolist() if (rdf is not None and not rdf.empty) else []
+                        log_feedback(
+                            ts, debug.get("user_prompt", ""),
+                            debug.get("filters", ""), ctx_ids, ctx_names,
+                            msg["content"], rating, error_cat, comment,
+                        )
+                        st.success("Tagasiside salvestatud!")
 
 # ---------- User input ----------
 if prompt := st.chat_input("Kirjelda, mida soovid õppida..."):
@@ -494,15 +605,47 @@ if prompt := st.chat_input("Kirjelda, mida soovid õppida..."):
                         )                        
                     messages_to_send = [
                         {"role": "system", "content": system_content},
-                    ] + st.session_state.messages
+                    ] + [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.messages
+                    ]
 
                     stream = client.chat.completions.create(
                         model=LLM_MODEL,
                         messages=messages_to_send,
                         stream=True,
                     )
-                    response = st.write_stream(stream)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+
+                    placeholder = st.empty()
+                    full_response = ""
+                    for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            full_response += chunk.choices[0].delta.content
+                            placeholder.markdown(full_response + "▌")
+                    placeholder.markdown(full_response)
+                    response = full_response
+
+                    # Count tokens locally (approximate)
+                    input_text = "".join(m["content"] for m in messages_to_send)
+                    st.session_state.total_input_tokens  += _count_tokens(input_text)
+                    st.session_state.total_output_tokens += _count_tokens(response)
+
+                    display_cols = ["aine_kood", "nimi_et", "eap", "semester", "oppeaste"]
+                    results_display = results_df[[c for c in display_cols if c in results_df.columns]].copy()
+
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": response,
+                        "debug_info": {
+                            "user_prompt": prompt,
+                            "filters": ", ".join(active_filters),
+                            "filtered_count": len(filtered_df),
+                            "candidate_count": candidate_k,
+                            "results_df": results_display,
+                            "system_prompt": system_content,
+                        },
+                    })
+                    st.rerun()
                 except Exception as e:
                     error_msg = f"Viga API päringul: {e}"
                     st.error(error_msg)
