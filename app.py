@@ -17,11 +17,6 @@ import streamlit as st
 import tiktoken
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
-try:
-    import streamlit_shadcn_ui as ui
-except Exception:  # pragma: no cover - optional UI dependency
-    ui = None
-
 # Suppress tqdm progress bars that cause BrokenPipeError in Streamlit
 os.environ.setdefault("TQDM_DISABLE", "1")
 
@@ -350,7 +345,7 @@ def _render_sidebar(
             with st.expander("Kuidas API võti lisada"):
                 st.code("OPENROUTER_API_KEY=sk-or-v1-...", language="bash")
                 st.caption("Lisa see `.env` faili projekti juuresse või süsteemi keskkonnamuutujana.")
-        if st.button("Uus vestlus"):
+        if st.button("Uus vestlus", use_container_width=True, type="secondary"):
             st.session_state.messages = []
             st.session_state.total_input_tokens = 0
             st.session_state.total_output_tokens = 0
@@ -359,11 +354,24 @@ def _render_sidebar(
         st.divider()
         st.markdown(f"**Mudel:** `{LLM_MODEL}`")
 
-        selected_semesters = st.multiselect(
-            "Semester",
-            opts["semester_options"],
-            default=opts["semester_options"],
+        # -- Semester pill toggle --
+        st.markdown(
+            "<p style='font-size:0.85rem;font-weight:500;margin:0 0 0.3rem;'>Semester</p>",
+            unsafe_allow_html=True,
         )
+        # Using native pills for clean segmented multiselect
+        if "_semester_selection" not in st.session_state:
+            st.session_state._semester_selection = list(opts["semester_options"])
+        
+        selected_semesters = st.pills(
+            "Semester_hidden", 
+            options=opts["semester_options"], 
+            default=st.session_state._semester_selection, 
+            selection_mode="multi",
+            label_visibility="collapsed"
+        )
+        st.session_state._semester_selection = selected_semesters
+
         eap_range = st.slider(
             "EAP vahemik",
             min_value=opts["eap_min"],
@@ -371,16 +379,33 @@ def _render_sidebar(
             value=(opts["eap_min"], opts["eap_max"]),
             step=0.5,
         )
-        grading_choice = st.radio(
-            "Hindamisskaala",
+        
+        st.markdown(
+            "<p style='font-size:0.85rem;font-weight:500;margin:0 0 0.3rem;'>Hindamisskaala</p>",
+            unsafe_allow_html=True,
+        )
+        grading_choice = st.pills(
+            "Hindamisskaala_hidden",
             ["Koik", "Eristav", "Mitteeristav"],
-            index=0,
+            default="Koik",
+            label_visibility="collapsed"
         )
-        result_mode = st.radio(
-            "Tulemuste valik",
+        if not grading_choice:
+            grading_choice = "Koik" # Ensure fallback if unselected
+            
+        st.markdown(
+            "<p style='font-size:0.85rem;font-weight:500;margin:0 0 0.3rem;'>Tulemuste valik</p>",
+            unsafe_allow_html=True,
+        )
+        result_mode = st.pills(
+            "Tulemuste valik_hidden",
             ["Tulemuste arv", "Ainult täpseimad vasted"],
-            horizontal=True,
+            default="Tulemuste arv",
+            label_visibility="collapsed"
         )
+        if not result_mode:
+            result_mode = "Tulemuste arv"
+            
         if result_mode == "Tulemuste arv":
             top_k = st.slider("Tulemuste arv", min_value=1, max_value=10, value=DEFAULT_TOP_K)
         else:
@@ -394,15 +419,21 @@ def _render_sidebar(
             selected_domains = st.multiselect("Valdkond", opts["domain_options"])
 
         if developer_mode:
-            ranking_mode = st.radio(
-                "Järjestusmeetod",
+            st.markdown(
+                "<p style='font-size:0.85rem;font-weight:500;margin:0 0 0.3rem;'>Järjestusmeetod</p>",
+                unsafe_allow_html=True,
+            )
+            ranking_mode = st.pills(
+                "Järjestusmeetod_hidden",
                 options=list(_RANKING_MODE_LABELS.keys()),
                 format_func=lambda key: _RANKING_MODE_LABELS[key],
-                index=1,
-                help=(
-                    "Cross-encoder kasutab rohkem mälu. Kohalik LLM kasutab Hugging Face Transformers mudelit."
-                ),
+                default="cross_encoder",
+                label_visibility="collapsed",
             )
+            if not ranking_mode:
+                ranking_mode = "cross_encoder"
+            st.caption("Cross-encoder kasutab rohkem mälu. Kohalik LLM kasutab Hugging Face Transformers mudelit.")
+            
             local_rerank_model = LOCAL_RERANK_MODEL
             if ranking_mode == "local_llm":
                 local_rerank_model = st.text_input(
@@ -448,28 +479,21 @@ def _render_sidebar(
             )
             st.caption(f"{int(match_mask.sum())} kursust vastab filtritele")
 
-        # Token / cost display
+        # Token / cost display (small, unobtrusive)
         st.divider()
         in_tok = st.session_state.get("total_input_tokens", 0)
         out_tok = st.session_state.get("total_output_tokens", 0)
         price_in, price_out = MODEL_PRICING.get(LLM_MODEL, (0, 0))
         cost = in_tok * price_in / 1_000_000 + out_tok * price_out / 1_000_000
-        if ui is not None:
-            ui.metric_card(
-                title="Tokeneid",
-                content=f"{in_tok + out_tok}",
-                description=f"{in_tok} sisse / {out_tok} välja",
-                key="sidebar_tokens",
-            )
-            ui.metric_card(
-                title="Hinnanguline kulu",
-                content=f"${cost:.6f}",
-                description=f"Mudel: {LLM_MODEL.split('/')[-1]}",
-                key="sidebar_cost",
-            )
-        else:
-            st.caption(f"Tokeneid: {in_tok} sisse / {out_tok} välja")
-            st.caption(f"Hinnanguline kulu: ${cost:.6f}")
+        st.markdown(
+            f"<div style='font-size:0.72rem;color:#94a3b8;line-height:1.6;'>"
+            f"<span style='color:#64748b;font-weight:500;'>Tokeneid:</span> "
+            f"{in_tok + out_tok} ({in_tok} sisse / {out_tok} välja)<br>"
+            f"<span style='color:#64748b;font-weight:500;'>Kulu:</span> "
+            f"${cost:.6f} &middot; {LLM_MODEL.split('/')[-1]}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
     return {
         "api_key": api_key,
@@ -514,13 +538,37 @@ def _inject_global_styles() -> None:
         .stChatMessage [data-testid="chatAvatarIcon-assistant"],
         .stChatMessage [data-testid="chatAvatarIcon-user"],
         .stChatMessage .stChatMessageAvatar,
-        /* Broader selector for avatar container */
-        [data-testid="stChatMessageAvatarContainer"] {
+        [data-testid="stChatMessageAvatarContainer"],
+        /* Target the img/svg avatar elements directly */
+        .stChatMessage img[data-testid],
+        .stChatMessage svg[data-testid],
+        /* Catch-all: any element whose class contains 'avatar' */
+        [class*="Avatar"],
+        [class*="avatar"] {
             display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            min-width: 0 !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }
         /* Remove the left gap that the avatar used to occupy */
         .stChatMessage [data-testid="stChatMessageContent"] {
             margin-left: 0 !important;
+            padding-left: 0 !important;
+        }
+        /* Collapse the grid column that held the avatar */
+        .stChatMessage {
+            grid-template-columns: 0 1fr !important;
+        }
+        .stChatMessage > div:first-child {
+            width: 0 !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: hidden !important;
         }
 
         /* ---- User message bubble ---- */
@@ -537,25 +585,131 @@ def _inject_global_styles() -> None:
         /* Tighter gap between consecutive messages */
         .stChatMessage + .stChatMessage { margin-top: -0.2rem; }
 
-        /* ---- Chat input box ---- */
+        /* ---- Chat input box – single clean border ---- */
+        [data-testid="stChatInput"],
+        [data-testid="stChatInput"] > div,
+        [data-testid="stChatInput"] > div > div,
+        [data-testid="stChatInput"] [data-baseweb="textarea"],
+        [data-testid="stChatInput"] [data-baseweb="textarea"] > div,
+        [data-testid="stChatInputTextArea"] {
+            border: none !important;
+            box-shadow: none !important;
+            outline: none !important;
+            background: var(--background-color) !important;
+            background-color: var(--background-color) !important;
+        }
+        /* Apply the one true border on the outermost container */
         [data-testid="stChatInput"] {
+            border: 1.5px solid var(--primary-color) !important;
             border-radius: 12px !important;
-            border: 1.5px solid #d4dae2 !important;
             padding: 0.1rem 0.2rem !important;
-            box-shadow: 0 1px 3px rgba(2,6,23,0.05) !important;
+            box-shadow: 0 0 0 1px rgba(2, 6, 23, 0.05) inset, 0 1px 3px rgba(2, 6, 23, 0.05) !important;
             transition: border-color 150ms ease !important;
+            background-color: var(--background-color) !important;
         }
         [data-testid="stChatInput"]:focus-within {
-            border-color: #94a3b8 !important;
-            box-shadow: 0 0 0 2px rgba(148,163,184,0.15) !important;
+            border-color: var(--text-color) !important;
+            box-shadow: 0 0 0 2px rgba(2, 6, 23, 0.12) !important;
         }
-        [data-testid="stChatInput"] textarea {
+        [data-testid="stChatInput"] textarea,
+        [data-testid="stChatInputTextArea"] {
             font-family: "IBM Plex Sans", "Avenir Next", "Helvetica Neue", sans-serif !important;
             font-size: 0.92rem !important;
+            border: none !important;
+            outline: none !important;
+            box-shadow: none !important;
+            color: var(--text-color) !important;
+            background: var(--background-color) !important;
+            background-color: var(--background-color) !important;
         }
         /* Hide the default send-button icon styling noise */
         [data-testid="stChatInput"] button {
-            color: #64748b !important;
+            color: var(--text-color) !important;
+            opacity: 0.6;
+        }
+        [data-testid="stChatInput"] button:hover {
+            opacity: 1;
+        }
+
+        /* ---- Sidebar global overrides ---- */
+        /* Neutral accent color instead of red for multiselect, sliders, radio */
+        section[data-testid="stSidebar"] .stMultiSelect [data-baseweb="tag"] {
+            background-color: #f1f5f9 !important;
+            color: #334155 !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 6px !important;
+        }
+        section[data-testid="stSidebar"] .stMultiSelect [data-baseweb="tag"] svg {
+            fill: #64748b !important;
+        }
+        /* Slider track and thumb — neutral slate tones */
+        section[data-testid="stSidebar"] [data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] {
+            background-color: #475569 !important;
+            border-color: #475569 !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stTickBar"] > div {
+            background-color: #475569 !important;
+        }
+        section[data-testid="stSidebar"] [data-baseweb="slider"] div[role="progressbar"] {
+            background-color: #475569 !important;
+        }
+        /* Slider value text */
+        section[data-testid="stSidebar"] [data-testid="stSlider"] [data-testid="stThumbValue"] {
+            color: #334155 !important;
+        }
+        /* Radio buttons — dark neutral instead of red */
+        section[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] input:checked + div {
+            background-color: #475569 !important;
+            border-color: #475569 !important;
+        }
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child > div {
+            border-color: #94a3b8 !important;
+        }
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label[data-baseweb="radio"]:has(input:checked) > div:first-child > div {
+            background-color: #475569 !important;
+            border-color: #475569 !important;
+        }
+
+        /* ---- Sidebar segmented semester buttons ---- */
+        section[data-testid="stSidebar"] .stButton > button {
+            font-size: 0.8rem !important;
+            font-weight: 500 !important;
+            padding: 0.3rem 0.5rem !important;
+            border-radius: 8px !important;
+            border: 1px solid #e2e8f0 !important;
+            transition: all 120ms ease !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border-color: #1e293b !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button[kind="secondary"],
+        section[data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
+            background-color: #f8fafc !important;
+            color: #475569 !important;
+            border-color: #e2e8f0 !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button:hover {
+            border-color: #94a3b8 !important;
+        }
+
+        /* ---- Sidebar compact label styling ---- */
+        section[data-testid="stSidebar"] .stSlider label,
+        section[data-testid="stSidebar"] .stRadio label,
+        section[data-testid="stSidebar"] .stMultiSelect label {
+            font-size: 0.85rem !important;
+            font-weight: 500 !important;
+            color: #334155 !important;
+        }
+
+        /* ---- Sidebar radio horizontal alignment ---- */
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
+            gap: 0.3rem !important;
+        }
+        section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {
+            font-size: 0.82rem !important;
+            padding: 0.15rem 0 !important;
         }
 
         /* ---- Course card styles ---- */
@@ -565,21 +719,24 @@ def _inject_global_styles() -> None:
             font-size: 1.15rem;
             font-weight: 700;
             letter-spacing: -0.01em;
-            color: #0f172a;
+            color: var(--text-color);
         }
         .course-card {
-            border: 1px solid #e2e8f0;
+            border: 1px solid rgba(128, 128, 128, 0.3);
             border-radius: 10px;
             padding: 0.55rem 0.75rem;
-            margin: 0 0 0.38rem 0;
-            background: #ffffff;
-            box-shadow: 0 1px 2px rgba(2, 6, 23, 0.03);
-            transition: border-color 120ms ease, box-shadow 120ms ease;
+            margin: 0 0 0.5rem 0;
+            background-color: var(--secondary-background-color);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            transition: all 120ms ease;
             position: relative;
+            z-index: 1;
         }
         .course-card:hover {
-            border-color: #cbd5e1;
-            box-shadow: 0 2px 6px rgba(2, 6, 23, 0.06);
+            border-color: var(--text-color);
+            background-color: var(--background-color);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            z-index: 100;
         }
         .course-card-head {
             display: flex;
@@ -592,10 +749,10 @@ def _inject_global_styles() -> None:
             line-height: 1.28;
             font-size: 0.94rem;
             font-weight: 600;
-            color: #0f172a;
+            color: var(--text-color);
         }
         .course-code-link {
-            color: #1e4f78;
+            color: var(--primary-color);
             font-weight: 700;
             text-decoration: underline;
             text-underline-offset: 2px;
@@ -603,24 +760,23 @@ def _inject_global_styles() -> None:
         }
         .course-code-link.no-link {
             text-decoration: none;
-            color: #1e4f78;
+            color: var(--primary-color);
         }
         .course-name {
-            color: #1e293b;
             font-weight: 500;
         }
         .course-overview {
             margin-top: 0.18rem;
             font-family: "IBM Plex Sans", "Avenir Next", "Helvetica Neue", sans-serif;
-            color: #475569;
             font-size: 0.84rem;
             line-height: 1.38;
+            opacity: 0.85;
         }
         .course-meta {
             margin-top: 0.14rem;
             font-family: "IBM Plex Sans", "Avenir Next", "Helvetica Neue", sans-serif;
-            color: #94a3b8;
             font-size: 0.76rem;
+            opacity: 0.6;
         }
         .score-pill {
             font-family: "Space Grotesk", "Avenir Next", "Helvetica Neue", sans-serif;
@@ -638,6 +794,14 @@ def _inject_global_styles() -> None:
             flex-shrink: 0;
         }
 
+        /* ---- Container for all cards (single stacking context) ---- */
+        .course-cards-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            position: relative;
+        }
+
         /* ---- Custom CSS tooltip ---- */
         .course-card .card-tooltip {
             visibility: hidden;
@@ -646,28 +810,32 @@ def _inject_global_styles() -> None:
             left: 0;
             right: 0;
             top: 100%;
-            z-index: 1000;
+            z-index: 2400;
             margin-top: 4px;
             padding: 0.65rem 0.8rem;
-            background: #1e293b;
-            color: #f1f5f9;
+            background: rgba(248, 250, 252, 0.92) !important;
+            background-color: rgba(248, 250, 252, 0.92) !important;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            color: #334155;
+            border: 1px solid #e2e8f0;
             border-radius: 8px;
-            box-shadow: 0 4px 16px rgba(2, 6, 23, 0.22);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
             font-family: "IBM Plex Sans", sans-serif;
             font-size: 0.82rem;
             line-height: 1.52;
-            pointer-events: none;
-            transition: opacity 140ms ease, visibility 0s 140ms;
+            pointer-events: auto;
+            transition: opacity 80ms linear, visibility 0s linear;
             max-width: 480px;
             width: 100%;
         }
-        .course-card:hover .card-tooltip {
+        .course-card:hover .card-tooltip,
+        .course-card .card-tooltip:hover {
             visibility: visible;
             opacity: 1;
-            transition: opacity 140ms ease 180ms, visibility 0s 180ms;
         }
         .card-tooltip .tt-label {
-            color: #94a3b8;
+            color: #64748b;
             font-size: 0.72rem;
             font-weight: 600;
             text-transform: uppercase;
@@ -679,7 +847,7 @@ def _inject_global_styles() -> None:
             margin-top: 0.35rem;
         }
         .card-tooltip .tt-text {
-            color: #e2e8f0;
+            color: #334155;
             font-size: 0.82rem;
             line-height: 1.48;
         }
@@ -710,6 +878,10 @@ def _render_course_cards(results_df: pd.DataFrame, card_prefix: str = "card") ->
         unsafe_allow_html=True,
     )
 
+    # Build ALL card HTML fragments first, then emit in a single st.markdown()
+    # so they share the same DOM stacking context and tooltip z-index works.
+    card_fragments: list[str] = []
+
     for _, row in results_df.iterrows():
         code = str(row.get("aine_kood", "")).strip()
         name = str(row.get("nimi_et", "")).strip()
@@ -722,6 +894,7 @@ def _render_course_cards(results_df: pd.DataFrame, card_prefix: str = "card") ->
         eap = str(row.get("eap", "")).strip()
         semester = str(row.get("semester", "")).strip()
         level = str(row.get("oppeaste", "")).strip()
+        grading_scale = str(row.get("hindamisskaala", "")).strip()
 
         meta_parts: list[str] = []
         if eap and eap.lower() != "nan":
@@ -730,6 +903,17 @@ def _render_course_cards(results_df: pd.DataFrame, card_prefix: str = "card") ->
             meta_parts.append(semester)
         if level and level.lower() != "nan":
             meta_parts.append(level)
+
+        grading_label = ""
+        if grading_scale and grading_scale.lower() != "nan":
+            grading_scale_lower = grading_scale.lower()
+            if "eristamata" in grading_scale_lower:
+                grading_label = "mitteeristav"
+            elif "eristav" in grading_scale_lower:
+                grading_label = "eristav"
+        if grading_label:
+            meta_parts.append(grading_label)
+
         meta_line = " \u00b7 ".join(meta_parts)
 
         overview = str(row.get("_llm_overview", "")).strip()
@@ -754,16 +938,6 @@ def _render_course_cards(results_df: pd.DataFrame, card_prefix: str = "card") ->
             tooltip_parts.append(
                 f"<span class='tt-label'>Asjakohasus</span>"
                 f"<span class='tt-text'>{html.escape(relevance_text)}</span>"
-            )
-        if overview:
-            tooltip_parts.append(
-                f"<span class='tt-label'>Kokkuv\u00f5te</span>"
-                f"<span class='tt-text'>{html.escape(overview)}</span>"
-            )
-        if meta_line:
-            tooltip_parts.append(
-                f"<span class='tt-label'>Info</span>"
-                f"<span class='tt-text'>{html.escape(meta_line)}</span>"
             )
         tooltip_html = "".join(tooltip_parts) if tooltip_parts else ""
         tooltip_block = f"<div class='card-tooltip'>{tooltip_html}</div>" if tooltip_html else ""
@@ -804,9 +978,8 @@ def _render_course_cards(results_df: pd.DataFrame, card_prefix: str = "card") ->
         )
         meta_html = html.escape(meta_line)
 
-        st.markdown(
-            f"""
-            <div class="course-card">
+        card_fragments.append(
+            f"""<div class="course-card">
               <div class="course-card-head">
                 <div class="course-title">{title_html}</div>
                 <span class="score-pill" style="background:{bg_color}; border-color:{border_color}; color:{text_color};">{score_10}/10</span>
@@ -814,8 +987,13 @@ def _render_course_cards(results_df: pd.DataFrame, card_prefix: str = "card") ->
               {overview_block}
               <div class="course-meta">{meta_html}</div>
               {tooltip_block}
-            </div>
-            """,
+            </div>"""
+        )
+
+    # Emit all cards in ONE st.markdown call — single stacking context
+    if card_fragments:
+        st.markdown(
+            "<div class='course-cards-container'>" + "\n".join(card_fragments) + "</div>",
             unsafe_allow_html=True,
         )
 
@@ -1122,6 +1300,7 @@ def _handle_user_prompt(
                 "eap",
                 "semester",
                 "oppeaste",
+                "hindamisskaala",
                 "ois_url",
                 "eesmark_et",
                 "_match_score_10",
